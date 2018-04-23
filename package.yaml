@@ -1,0 +1,84 @@
+name:                graphql-row-types
+version:             0.1.0.0
+github:              "githubuser/graphql-row-types"
+license:             BSD3
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2018 Author name here"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on Github at <https://github.com/githubuser/graphql-row-types#readme>
+
+ghc-options: -Wall -fno-warn-redundant-constraints -fno-warn-unticked-promoted-constructors
+
+default-extensions:
+- ConstraintKinds
+- DataKinds
+- DeriveFunctor
+- DeriveGeneric
+- DuplicateRecordFields
+- ExistentialQuantification
+- FlexibleContexts
+- FlexibleInstances
+- GADTs
+- GeneralizedNewtypeDeriving
+- KindSignatures
+- LambdaCase
+- NamedFieldPuns
+- NoImplicitPrelude
+- MultiParamTypeClasses
+- MultiWayIf
+- OverloadedLabels
+- OverloadedStrings
+- PatternSynonyms
+- PolyKinds
+- RankNTypes
+- RecordWildCards
+- ScopedTypeVariables
+- TupleSections
+- TypeApplications
+- TypeFamilies
+- TypeInType
+- TypeOperators
+
+dependencies:
+- base >= 4.7 && < 5
+- constraints
+- ghc-prim
+- protolude
+- row-types
+
+library:
+  source-dirs: src
+
+executables:
+  graphql-row-types-example:
+    main:                Main.hs
+    source-dirs:         example
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - graphql-row-types
+
+tests:
+  graphql-row-types-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - graphql-row-types
