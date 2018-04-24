@@ -39,9 +39,11 @@ module Data.Row.Poly
   , IsA(..)
   , As(..)
   , AllUniqueLabels
+  , Disjoint
   , Zip
   , Map
   , Subset
+  , Ifte
   ) where
 
 import Data.Constraint
@@ -49,7 +51,8 @@ import Data.Functor.Const
 import Data.Proxy
 import Data.Row.Internal
        (type (≈), Empty, HideType(..), LT(..), Label(..), Labels, Row(..), As(..), IsA(..),
-        Unconstrained1, labels, labels', show', toKey)
+        Unconstrained1, show', toKey)
+import Data.String (IsString(fromString))
 import Data.Type.Equality (type (==))
 import GHC.Types (Type)
 import GHC.TypeLits
@@ -237,8 +240,7 @@ instance (KnownSymbol ℓ, c τ, FoldStep ℓ τ ρ, Forall ('R ρ) c) => Forall
 -- | Any structure over two rows in which every element of both rows satisfies the
 --   given constraint can be metamorphized into another structure over both of the
 --   rows.
--- TODO: Perhaps it should be over two constraints?  But this hasn't seemed necessary
---  in practice.
+
 class Forall2 (r1 :: Row k) (r2 :: Row k) (c :: k -> Constraint) where
   -- | A metamorphism is a fold followed by an unfold.  Here, we fold both of the inputs.
   metamorph2 :: forall (f :: Row k -> Type) (g :: Row k -> Type) (h :: Row k -> Row k -> Type)
@@ -270,22 +272,23 @@ class Unconstrained
 instance Unconstrained
 
 -- | Return a list of the labels in a row type.
--- TODO
-{-
+
 labels :: forall ρ c s. (IsString s, Forall ρ c) => [s]
-labels = getConst $ metamorph @ρ @c @(Const ()) @(Const [s]) @(Const ()) Proxy (const $ Const []) doUncons doCons (Const ())
+labels = getConst $ metamorph @_ @ρ @c @(Const ()) @(Const [s]) @(Const ()) Proxy (const $ Const []) doUncons doCons (Const ())
   where doUncons _ _ = (Const (), Const ())
         doCons l _ (Const c) = Const $ show' l : c
 
 -- | Return a list of the labels in a row type and is specialized to the 'Unconstrained1' constraint.
 labels' :: forall ρ s. (IsString s, Forall ρ Unconstrained1) => [s]
-labels' = labels @ρ @Unconstrained1 -}
+labels' = labels @ρ @Unconstrained1
+
 {--------------------------------------------------------------------
   Convenient type families and classes
 --------------------------------------------------------------------}
 -- | A convenient way to provide common, easy constraints
--- TODO
--- type WellBehaved ρ = (Forall ρ Unconstrained1, AllUniqueLabels ρ)
+
+type WellBehaved ρ = (Forall ρ Unconstrained1, AllUniqueLabels ρ)
+
 -- | Are all of the labels in this Row unique?
 type family AllUniqueLabels (r :: Row k) :: Constraint where
   AllUniqueLabels (R r) = AllUniqueLabelsR r
@@ -308,15 +311,14 @@ type family SubsetR (r1 :: [LT k]) (r2 :: [LT k]) :: Constraint where
   SubsetR (hl :-> al ': tl) (hr :-> ar ': tr) = Ifte (hl <=.? hr) (TypeError (Text "One row-type is not a subset of the other." :$$: Text "The first assigns the label " :<>: ShowType hl :<>: Text " to " :<>: ShowType al :<>: Text " while the second has no assignment for it.")) (SubsetR (hl :-> al ': tl) tr)
 
 -- | A type synonym for disjointness.
--- TODO
-{-
+
 type Disjoint l r = ( WellBehaved l
                     , WellBehaved r
                     , Subset l (l .+ r)
                     , Subset r (l .+ r)
                     , l .+ r .\\ l ≈ r
                     , l .+ r .\\ r ≈ l)
--}
+
 -- | Map a type level function over a Row.
 type family Map (f :: a -> b) (r :: Row a) :: Row b where
   Map f (R r) = R (MapR f r)
