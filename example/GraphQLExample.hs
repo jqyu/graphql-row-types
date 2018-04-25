@@ -1,4 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE TypeApplications #-}
 
 
@@ -53,6 +55,19 @@ type SchemaDefinition =
             "A list of all directives supported by this server."
       )
 
+__schema :: Monad m => Resolver m schema SchemaDefinition
+__schema = define $
+  dummyField @"types"
+  `combine`
+  dummyField @"queryType"
+  `combine`
+  dummyField @"mutationType"
+  `combine`
+  dummyField @"subscriptionType"
+  `combine`
+  dummyField @"directives"
+
+
 type DirectiveDefinition =
   "__Directive" .==
     'OBJECT DirectivePlaceholder
@@ -83,6 +98,7 @@ type DirectiveDefinition =
           'DEPRECATED_FIELD Empty ('NON_NULL "Boolean") ""
             "Use `locations`."
       )
+
 
 type DirectiveLocationDefinition =
   "__DirectiveLocation" .==
@@ -149,7 +165,7 @@ type TypeDefinition =
       .+ "fields" .==
           'FIELD
             ( "includeDeprecated" .==
-                'INPUT_VALUE_WITH_DEFAULT ('NULLABLE "Boolean") ""
+                'INPUT_VALUE_WITH_DEFAULT ('NULLABLE "Boolean") "false" ""
             )
             ('NULLABLE_LIST_OF ('NON_NULL "__Field"))
             ""
@@ -160,17 +176,12 @@ type TypeDefinition =
       .+ "enumValues" .==
           'FIELD
             ( "includeDeprecated" .==
-                'INPUT_VALUE_WITH_DEFAULT ('NULLABLE "Boolean") ""
+                'INPUT_VALUE_WITH_DEFAULT ('NULLABLE "Boolean") "false" ""
             )
             ('NULLABLE_LIST_OF ('NON_NULL "__EnumValue"))
             ""
       .+ "inputFields" .==
-           'FIELD
-            ( "includeDeprecated" .==
-                'INPUT_VALUE_WITH_DEFAULT ('NULLABLE "Boolean") ""
-            )
-            ('NULLABLE_LIST_OF ('NON_NULL "__InputValue"))
-            ""
+           'FIELD Empty ('NULLABLE_LIST_OF ('NON_NULL "__InputValue")) ""
       .+ "ofType" .==
           'FIELD Empty ('NULLABLE "__Type") ""
       )
@@ -294,5 +305,5 @@ x :: InputValuePlaceholder
 x = undefined
 
 
-value :: Applicative m => m [Maybe FieldOrInputValueT]
-value = pure . pure . pure $ unionValue @"__InputValue" x
+value :: Applicative m => m (Maybe [Maybe FieldOrInputValueT])
+value = pure . pure . pure . pure $ unionValue @"__InputValue" x

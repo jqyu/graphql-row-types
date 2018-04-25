@@ -1,230 +1,326 @@
-module GraphQL.Language.AST where
+{-# LANGUAGE TypeApplications #-}
+
+-- | This is copied from https://github.com/haskell-graphql/graphql-api/blob/master/src/GraphQL/Internal/Syntax/AST.hs
+-- it's super messy and needs to be reviewed/cleaned up
+-- the main thing that's missing right now is source positions
+module GraphQL.Language.AST
+  ( QueryDocument(..)
+  , SchemaDocument(..)
+  , Definition(..)
+  , OperationDefinition(..)
+  , Node(..)
+  , VariableDefinition(..)
+  , Variable(..)
+  , SelectionSet
+  , Selection(..)
+  , Field(..)
+  , Name(..)
+  , Alias
+  , Argument(..)
+  , FragmentSpread(..)
+  , InlineFragment(..)
+  , FragmentDefinition(..)
+  , TypeCondition
+  , Value(..)
+  , StringValue(..)
+  , ListValue(..)
+  , ObjectValue(..)
+  , ObjectField(..)
+  , DefaultValue
+  , Directive(..)
+  , GType(..)
+  , NamedType(..)
+  , ListType(..)
+  , NonNullType(..)
+  , TypeDefinition(..)
+  , Description
+  , ObjectTypeDefinition(..)
+  , Interfaces
+  , FieldDefinition(..)
+  , ArgumentsDefinition
+  , InputValueDefinition(..)
+  , InterfaceTypeDefinition(..)
+  , UnionTypeDefinition(..)
+  , ScalarTypeDefinition(..)
+  , EnumTypeDefinition(..)
+  , EnumValueDefinition(..)
+  , InputObjectTypeDefinition(..)
+  ) where
 
 import           Protolude
 
--- see: https://github.com/graphql/graphql-js/blob/master/src/language/ast.js
-data AstNode node = AstNode
-  { start :: Int
-  , end   :: Int
-  , node  :: node
-  } deriving (Functor)
+import           Data.String     (String)
+import           Test.QuickCheck (Arbitrary (..), arbitrary, elements, listOf,
+                                  oneof)
 
--- Name
+-- * Name
+-- | A name in GraphQL.
+--
+-- https://facebook.github.io/graphql/#sec-Names
 newtype Name = Name
   { unName :: Text
-  }
+  } deriving (Eq, Ord, Show)
 
--- Document
-newtype Document = Document
-  { definitions :: [AstNode Definition]
-  }
+instance Arbitrary Name where
+  arbitrary = do
+    initial <- elements alpha
+    rest <- listOf (elements (alpha <> numeric))
+    pure (Name (toS (initial : rest)))
+    where
+      alpha = ['A' .. 'Z'] <> ['a' .. 'z'] <> ['_']
+      numeric = ['0' .. '9']
+
+-- * Documents
+-- | A 'QueryDocument' is something a user might send us.
+--
+-- https://facebook.github.io/graphql/#sec-Language.Query-Document
+newtype QueryDocument = QueryDocument
+  { getDefinitions :: [Definition]
+  } deriving (Eq, Show)
 
 data Definition
   = DefinitionOperation OperationDefinition
   | DefinitionFragment FragmentDefinition
-  | DefinitionSchema SchemaDefinition
-  | DefinitionType TypeDefinition
-  | DefinitionDirective DirectiveDefinition
+  deriving (Eq, Show)
 
-data OperationType
-  = Query
-  | Mutation
-  | Subscription
+data OperationDefinition
+  = Query Node
+  | Mutation Node
+  | AnonymousQuery SelectionSet
+  deriving (Eq, Show)
 
-data OperationDefinition = OperationDefinition
-  { operation           :: OperationType
-  , name                :: Maybe (AstNode Name)
-  , variableDefinitions :: [AstNode VariableDefinition]
-  , directives          :: [AstNode Directive]
-  , selectionSet        :: AstNode SelectionSet
-  }
+data Node =
+  Node (Maybe Name)
+       [VariableDefinition]
+       [Directive]
+       SelectionSet
+  deriving (Eq, Show)
 
-data VariableDefinition = VariableDefinition
-  { variable     :: AstNode Variable
-  , type_        :: AstNode Type_
-  , defaultValue :: Maybe Value
-  }
+data VariableDefinition =
+  VariableDefinition Variable
+                     GType
+                     (Maybe DefaultValue)
+  deriving (Eq, Show)
 
-newtype Variable = Variable
-  { name :: AstNode Name
-  }
+newtype Variable =
+  Variable Name
+  deriving (Eq, Ord, Show)
 
-newtype SelectionSet = SelectionSet
-  { selections :: [AstNode Selection]
-  }
+instance Arbitrary Variable where
+  arbitrary = Variable <$> arbitrary
+
+type SelectionSet = [Selection]
 
 data Selection
   = SelectionField Field
   | SelectionFragmentSpread FragmentSpread
   | SelectionInlineFragment InlineFragment
+  deriving (Eq, Show)
 
-data Field = Field
-  { alias        :: Maybe (AstNode Name)
-  , name         :: AstNode Name
-  , arguments    :: [AstNode Argument]
-  , directives   :: [AstNode Directive]
-  , selectionSet :: AstNode SelectionSet
-  }
+data Field =
+  Field (Maybe Alias)
+        Name
+        [Argument]
+        [Directive]
+        SelectionSet
+  deriving (Eq, Show)
 
-data Argument = Argument
-  { name  :: AstNode Name
-  , value :: AstNode Value
-  }
+type Alias = Name
 
--- Fragments
-data FragmentSpread = FragmentSpread
-  { name       :: AstNode Name
-  , directives :: [AstNode Directive]
-  }
+data Argument =
+  Argument Name
+           Value
+  deriving (Eq, Show)
 
-data InlineFragment = InlineFragment
-  { typeCondition :: AstNode NamedType
-  , directives    :: [AstNode Directive]
-  , selectionSet  :: AstNode SelectionSet
-  }
+-- * Fragments
+data FragmentSpread =
+  FragmentSpread Name
+                 [Directive]
+  deriving (Eq, Show)
 
-data FragmentDefinition = FragmentDefinition
-  { name          :: AstNode Name
-  , typeCondition :: AstNode NamedType
-  , directives    :: [AstNode Directive]
-  , selectionSet  :: AstNode SelectionSet
-  }
+data InlineFragment =
+  InlineFragment (Maybe TypeCondition)
+                 [Directive]
+                 SelectionSet
+  deriving (Eq, Show)
 
--- Values
+data FragmentDefinition =
+  FragmentDefinition Name
+                     TypeCondition
+                     [Directive]
+                     SelectionSet
+  deriving (Eq, Show)
+
+type TypeCondition = NamedType
+
+-- * Values
 data Value
   = ValueVariable Variable
   | ValueInt Int32
   | ValueFloat Double
-  | ValueString Text
   | ValueBoolean Bool
+  | ValueString StringValue
+  | ValueEnum Name
+  | ValueList ListValue
+  | ValueObject ObjectValue
   | ValueNull
-  | ValueEnum (AstNode Name)
-  | ValueList (AstNode [AstNode Value])
-  | ValueObject (AstNode [AstNode ObjectField])
+  deriving (Eq, Ord, Show)
 
-newtype StringValue = StringValue
-  { value :: Text
-  }
+instance Arbitrary Value where
+  arbitrary =
+    oneof
+      [ ValueVariable <$> arbitrary
+      , ValueInt <$> arbitrary
+      , ValueFloat <$> arbitrary
+      , ValueBoolean <$> arbitrary
+      , ValueString <$> arbitrary
+      , ValueEnum <$> arbitrary
+      , ValueList <$> arbitrary
+      , ValueObject <$> arbitrary
+      , pure ValueNull
+      ]
 
-data ObjectField = ObjectField
-  { name  :: AstNode Name
-  , value :: AstNode Value
-  }
+newtype StringValue =
+  StringValue Text
+  deriving (Eq, Ord, Show)
 
--- Directives
-data Directive = Directive
-  { name      :: AstNode Name
-  , arguments :: [AstNode Argument]
-  }
+instance Arbitrary StringValue where
+  arbitrary = StringValue . toS <$> arbitrary @String
 
-data DirectiveDefinition = DirectiveDefinition
-  { description :: Maybe (AstNode StringValue)
-  , name        :: AstNode Name
-  , arguments   :: [AstNode InputValueDefinition]
-  , locations   :: [AstNode Name]
-  }
+newtype ListValue =
+  ListValue [Value]
+  deriving (Eq, Ord, Show)
 
--- Type reference
-data Type_
+instance Arbitrary ListValue where
+  arbitrary = ListValue <$> listOf arbitrary
+
+newtype ObjectValue =
+  ObjectValue [ObjectField]
+  deriving (Eq, Ord, Show)
+
+instance Arbitrary ObjectValue where
+  arbitrary = ObjectValue <$> listOf arbitrary
+
+data ObjectField =
+  ObjectField Name
+              Value
+  deriving (Eq, Ord, Show)
+
+instance Arbitrary ObjectField where
+  arbitrary = ObjectField <$> arbitrary <*> arbitrary
+
+type DefaultValue = Value
+
+-- * Directives
+data Directive =
+  Directive Name
+            [Argument]
+  deriving (Eq, Show)
+
+-- * Type Reference
+data GType
   = TypeNamed NamedType
   | TypeList ListType
   | TypeNonNull NonNullType
+  deriving (Eq, Ord, Show)
 
-data NullableType
-  = NullableNamed NamedType
-  | NullableList ListType
+newtype NamedType =
+  NamedType Name
+  deriving (Eq, Ord, Show)
 
-newtype NamedType = NamedType
-  { name :: AstNode Name
-  }
+newtype ListType =
+  ListType GType
+  deriving (Eq, Ord, Show)
 
-newtype ListType = ListType
-  { _type :: AstNode Type_
-  }
+data NonNullType
+  = NonNullTypeNamed NamedType
+  | NonNullTypeList ListType
+  deriving (Eq, Ord, Show)
 
-newtype NonNullType = NonNullType
-  { _type :: AstNode NullableType
-  }
+-- | A 'SchemaDocument' is a document that defines a GraphQL schema.
+--
+-- https://facebook.github.io/graphql/#sec-Type-System
+newtype SchemaDocument =
+  SchemaDocument [TypeDefinition]
+  deriving (Eq, Show)
 
--- Type System
-data SchemaDefinition = SchemaDefinition
-  { directives     :: Directive
-  , operationTypes :: [AstNode OperationTypeDefinition]
-  }
-
-data OperationTypeDefinition = OperationTypeDefinition
-  { operation :: AstNode OperationType
-  , _type     :: AstNode NamedType
-  }
-
--- Type Definition
+-- * Type definition
 data TypeDefinition
-  = TypeDefinitionScalar ScalarTypeDefinition
-  | TypeDefinitionObject ObjectTypeDefinition
+  = TypeDefinitionObject ObjectTypeDefinition
   | TypeDefinitionInterface InterfaceTypeDefinition
   | TypeDefinitionUnion UnionTypeDefinition
+  | TypeDefinitionScalar ScalarTypeDefinition
   | TypeDefinitionEnum EnumTypeDefinition
   | TypeDefinitionInputObject InputObjectTypeDefinition
+  deriving (Eq, Show)
 
-data ScalarTypeDefinition = ScalarDefinition
-  { description :: Maybe (AstNode StringValue)
-  , name        :: AstNode Name
-  , directives  :: [AstNode Directive]
-  }
+-- TODO: support type extensions
+data ObjectTypeDefinition =
+  ObjectTypeDefinition Description
+                       Name
+                       Interfaces
+                       [Directive]
+                       [FieldDefinition]
+  deriving (Eq, Show)
 
-data ObjectTypeDefinition = ObjectTypeDefinition
-  { description :: Maybe (AstNode StringValue)
-  , name        :: AstNode Name
-  , interfaces  :: [AstNode NamedType]
-  , directives  :: [AstNode Directive]
-  , fields      :: [AstNode FieldDefinition]
-  }
+type Interfaces = [NamedType]
 
-data InterfaceTypeDefinition = InterfaceTypeDefinition
-  { description :: Maybe (AstNode StringValue)
-  , name        :: AstNode Name
-  , directives  :: [AstNode Directive]
-  , fields      :: [AstNode FieldDefinition]
-  }
+type Description = Maybe StringValue
 
-data UnionTypeDefinition = UnionTypeDefinition
-  { description :: Maybe (AstNode StringValue)
-  , name        :: AstNode Name
-  , directives  :: [AstNode Directive]
-  , types       :: [AstNode NamedType]
-  }
+data FieldDefinition =
+  FieldDefinition Description
+                  Name
+                  ArgumentsDefinition
+                  GType
+                  [Directive]
+  deriving (Eq, Show)
 
-data EnumTypeDefinition = EnumTypeDefinition
-  { description :: Maybe (AstNode StringValue)
-  , name        :: AstNode Name
-  , directives  :: [AstNode Directive]
-  , values      :: [AstNode EnumValueDefinition]
-  }
+type ArgumentsDefinition = [InputValueDefinition]
 
-data EnumValueDefinition = EnumValueDefinition
-  { description :: Maybe (AstNode StringValue)
-  , name        :: AstNode Name
-  , directives  :: [AstNode Directive]
-  }
+data InputValueDefinition =
+  InputValueDefinition Description
+                       Name
+                       GType
+                       (Maybe DefaultValue)
+                       [Directive]
+  deriving (Eq, Show)
 
-data InputObjectTypeDefinition = InputObjectTypeDefinition
-  { description :: Maybe (AstNode StringValue)
-  , name        :: AstNode Name
-  , directives  :: [AstNode Directive]
-  , fields      :: [AstNode InputValueDefinition]
-  }
+data InterfaceTypeDefinition =
+  InterfaceTypeDefinition Description
+                          Name
+                          [Directive]
+                          [FieldDefinition]
+  deriving (Eq, Show)
 
-data FieldDefinition = FieldDefinition
-  { description :: Maybe (AstNode StringValue)
-  , name        :: AstNode Name
-  , arguments   :: [AstNode InputValueDefinition]
-  , _type       :: AstNode Type_
-  , directives  :: [AstNode Directive]
-  }
+data UnionTypeDefinition =
+  UnionTypeDefinition Description
+                      Name
+                      [Directive]
+                      [NamedType]
+  deriving (Eq, Show)
 
-data InputValueDefinition = InputValueDefinition
-  { description  :: Maybe (AstNode StringValue)
-  , name         :: AstNode Name
-  , directives   :: [AstNode Directive]
-  , defaultValue :: Maybe (AstNode Value)
-  }
+data ScalarTypeDefinition =
+  ScalarTypeDefinition Description
+                       Name
+                       [Directive]
+  deriving (Eq, Show)
+
+data EnumTypeDefinition =
+  EnumTypeDefinition Description
+                     Name
+                     [Directive]
+                     [EnumValueDefinition]
+  deriving (Eq, Show)
+
+data EnumValueDefinition =
+  EnumValueDefinition Description
+                      Name
+                      [Directive]
+  deriving (Eq, Show)
+
+data InputObjectTypeDefinition =
+  InputObjectTypeDefinition Description
+                            Name
+                            [Directive]
+                            [InputValueDefinition]
+  deriving (Eq, Show)

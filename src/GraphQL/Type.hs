@@ -1,17 +1,13 @@
-
 {-# LANGUAGE UndecidableInstances #-}
 
 module GraphQL.Type where
 
-import Protolude
-import Data.Row (type (.==), type (.+))
-import Data.Row.Variants (Var)
-import Data.Row.Poly (LT(..), Row(..), Empty, Ifte, type (.!))
+import Data.Row (Rec, Var, type (.+), type (.==))
+import Data.Row.Poly (type (.!), Empty, Ifte, LT(..), Row(..))
 import GHC.Types (Symbol, Type)
-
+import Protolude
 
 -- schema representation
-
 data TypeRef where
   NULLABLE :: Symbol -> TypeRef
   NULLABLE_LIST_OF :: TypeRef -> TypeRef
@@ -19,8 +15,11 @@ data TypeRef where
   NON_NULL_LIST_OF :: TypeRef -> TypeRef
 
 type Name = Symbol
+
 type Description = Symbol
+
 type DeprecationReason = Symbol
+
 type Interface = Symbol
 
 data TypeDefinition where
@@ -51,7 +50,6 @@ data TypeDefinition where
     -> Row InputValueDefinition
     -> TypeDefinition
 
-
 data FieldDefinition where
   FIELD
     :: Row ArgumentDefinition
@@ -65,7 +63,6 @@ data FieldDefinition where
     -> Description
     -> FieldDefinition
 
-
 type ArgumentDefinition = InputValueDefinition
 
 data InputValueDefinition where
@@ -75,9 +72,9 @@ data InputValueDefinition where
     -> InputValueDefinition
   INPUT_VALUE_WITH_DEFAULT
     :: TypeRef
+    -> Symbol
     -> Description
     -> InputValueDefinition
-
 
 data EnumValueDefinition where
   ENUM_VALUE
@@ -88,7 +85,6 @@ data EnumValueDefinition where
     -> DeprecationReason
     -> EnumValueDefinition
 
-
 -- type families to determine corresponding types
 
 type family GetType (schema :: Row TypeDefinition) (ref :: TypeRef) :: Type where
@@ -97,33 +93,59 @@ type family GetType (schema :: Row TypeDefinition) (ref :: TypeRef) :: Type wher
   GetType schema ('NULLABLE symbol) = GetNamedType schema symbol
   GetType schema ('NULLABLE_LIST_OF ref) = Maybe [GetType schema ref]
 
-
 type family GetNamedType (schema :: Row TypeDefinition) (name :: Symbol) :: Type where
   GetNamedType schema name = DefinitionToType schema name (schema .! name)
-
 
 type family DefinitionToType (schema :: Row TypeDefinition) (name :: Symbol) (definition :: TypeDefinition) :: Type where
   DefinitionToType _ _ ('SCALAR scalar _) = scalar
   DefinitionToType _ _ ('OBJECT object _ _ _) = object
-  DefinitionToType schema interface ('INTERFACE _ _) = Var (InterfaceToRow interface schema)
-  DefinitionToType schema _ ('UNION _ possibleTypes) = Var (UnionToRow possibleTypes schema)
+  DefinitionToType schema interface ('INTERFACE _ _) = Var (InterfaceToRow schema interface)
+  DefinitionToType schema _ ('UNION _ possibleTypes) = Var (UnionToRow schema possibleTypes)
+  DefinitionToType schema _ ('INPUT_OBJECT _ inputFields) = Rec (InputValuesToRow schema inputFields)
 
-type family InterfaceToRow (interface :: Symbol) (schema :: Row TypeDefinition) :: Row Type where
-  InterfaceToRow interface ('R definitions) = 'R (InterfaceToRowR interface definitions)
+type family InterfaceToRow (schema :: Row TypeDefinition) (interface :: Symbol) :: Row Type where
+  InterfaceToRow ('R definitions) interface = 'R (InterfaceToRowR interface definitions)
 
-type family InterfaceToRowR (interface :: Symbol) (schema :: [LT TypeDefinition]) :: [LT Type] where
+type family InterfaceToRowR (interface :: Symbol) (definitions :: [LT TypeDefinition]) :: [LT Type] where
   InterfaceToRowR _ '[] = '[]
   InterfaceToRowR interface (label :-> 'OBJECT object _ interfaces _ ': rest) =
-    Ifte (Elem interface interfaces)
-    (label :-> object ': InterfaceToRowR interface rest)
-    (InterfaceToRowR interface rest)
+    Ifte
+      (Elem interface interfaces)
+      (label :-> object ': InterfaceToRowR interface rest)
+      (InterfaceToRowR interface rest)
   InterfaceToRowR interface (_ ': rest) = InterfaceToRowR interface rest
 
-type family UnionToRow (possibleTypes :: [Symbol]) (schema :: Row TypeDefinition) :: Row Type where
-  UnionToRow '[] schema = Empty
-  UnionToRow (label ': rest) schema =
-    (label .== DefinitionToType schema label (schema .! label))
-    .+ UnionToRow rest schema
+type family UnionToRow (schema :: Row TypeDefinition) (possibleTypes :: [Symbol]) :: Row Type where
+  UnionToRow schema '[] = Empty
+  UnionToRow schema (label ': rest) =
+    label .== DefinitionToType schema label (schema .! label)
+    .+ UnionToRow schema rest
+
+type family InputValuesToRow (schema :: Row TypeDefinition) (inputValues :: Row InputValueDefinition) :: Row Type where
+  InputValuesToRow schema ('R inputValues) = 'R (InputValuesToRowR schema inputValues)
+
+type family InputValuesToRowR (schema :: Row TypeDefinition) (inputValues :: [LT InputValueDefinition]) :: [LT Type] where
+  InputValuesToRowR _ '[] = '[]
+  InputValuesToRowR schema (label :-> 'INPUT_VALUE ref _ ': rest) =
+    label :-> GetType schema ref
+    ': InputValuesToRowR schema rest
+  InputValuesToRowR schema (label :-> 'INPUT_VALUE_WITH_DEFAULT ref _ _ ': rest) =
+    label :-> GetNullableInputValueType schema ref
+    ': InputValuesToRowR schema rest
+
+type family GetNullableInputValueType (schema :: Row TypeDefinition) (ref :: TypeRef) :: Type where
+  GetNullableInputValueType schema ('NULLABLE symbol) = GetNamedType schema symbol
+  GetNullableInputValueType schema ('NULLABLE_LIST_OF ref) = Maybe [GetType schema ref]
+  -- TODO: error message in case you try to provide a non-null input value with a default value
+
+
+newtype GraphQLEnum (cases :: [Symbol]) = GraphQLEnum { value :: Text }
+
+-- functions on type level lists
+
+type family RemoveL (value :: k) (values :: [k]) :: [k] where
+  RemoveL value '[] = '[]
+  RemoveL value (v ': rest) = Ifte (value == v) (RemoveL value rest) (v ': RemoveL value rest)
 
 type family Elem (value :: k) (values :: [k]) :: Bool where
   Elem value '[] = False

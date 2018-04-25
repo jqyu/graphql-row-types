@@ -52,7 +52,7 @@ import Data.Proxy
 import Data.Row.Internal
        (type (≈), Empty, HideType(..), LT(..), Label(..), Labels, Row(..), As(..), IsA(..),
         Unconstrained1, show', toKey)
-import Data.String (IsString(fromString))
+import Data.String (IsString)
 import Data.Type.Equality (type (==))
 import GHC.Types (Type)
 import GHC.TypeLits

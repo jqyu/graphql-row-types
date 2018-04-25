@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances #-}
+
 module GraphQL.Resolver where
 
 import Protolude
@@ -76,8 +78,8 @@ instance Definable m schema ('SCALAR scalar description) where
 
 instance InterfacesSatisfied schema interfaces fields =>
          Definable m schema ('OBJECT object description interfaces fields) where
-  type Spec m schema ('OBJECT object description interfaces fields) = SchemaResolver m schema -> ObjectResolver m schema object fields
-  toDefinition resolver schema = TypeResolverObject (resolver schema)
+  type Spec m schema ('OBJECT object description interfaces fields) = SchemaResolver m schema -> Rec (Row.Map (FieldResolver m schema object) fields)
+  toDefinition resolver = TypeResolverObject . ObjectResolver . resolver
 
 define ::
      forall label m schema def. (KnownSymbol label, Definable m schema def)
@@ -87,3 +89,9 @@ define resolver schema = Label .== toDefinition resolver schema
 
 combine :: Applicative m => m (Rec r1) -> m (Rec r2) -> m (Rec (r1 .+ r2))
 combine = liftA2 (.+)
+
+dummyField ::
+     forall label m schema context field. (KnownSymbol label, Applicative m)
+  => SchemaResolver m schema
+  -> Rec (label .== FieldResolver m schema context field)
+dummyField _ = Label .== FieldResolver {resolver = \_ -> pure AST.ValueNull}

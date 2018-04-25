@@ -53,10 +53,15 @@ default-extensions:
 
 dependencies:
 - base >= 4.7 && < 5
+- aeson
+- attoparsec
 - constraints
 - ghc-prim
 - protolude
 - row-types
+- scientific
+- text
+- QuickCheck
 
 library:
   source-dirs: src
