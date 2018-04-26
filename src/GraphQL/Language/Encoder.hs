@@ -4,6 +4,7 @@
 module GraphQL.Language.Encoder
   ( queryDocument
   , schemaDocument
+  , directive
   , value
   ) where
 

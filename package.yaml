@@ -45,6 +45,7 @@ default-extensions:
 - RankNTypes
 - RecordWildCards
 - ScopedTypeVariables
+- TemplateHaskell
 - TupleSections
 - TypeApplications
 - TypeFamilies
@@ -60,6 +61,7 @@ dependencies:
 - protolude
 - row-types
 - scientific
+- template-haskell
 - text
 - QuickCheck
 

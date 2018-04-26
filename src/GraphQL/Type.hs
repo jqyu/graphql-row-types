@@ -81,8 +81,8 @@ data EnumValueDefinition where
     :: Description
     -> EnumValueDefinition
   DEPRECATED_ENUM_VALUE
-    :: Description
-    -> DeprecationReason
+    :: DeprecationReason
+    -> Description
     -> EnumValueDefinition
 
 -- type families to determine corresponding types
@@ -145,7 +145,8 @@ newtype GraphQLEnum (cases :: [Symbol]) = GraphQLEnum { value :: Text }
 
 type family RemoveL (value :: k) (values :: [k]) :: [k] where
   RemoveL value '[] = '[]
-  RemoveL value (v ': rest) = Ifte (value == v) (RemoveL value rest) (v ': RemoveL value rest)
+  RemoveL value (value ': rest) = (RemoveL value rest)
+  RemoveL value (v ': rest) = v ': RemoveL value rest
 
 type family Elem (value :: k) (values :: [k]) :: Bool where
   Elem value '[] = False

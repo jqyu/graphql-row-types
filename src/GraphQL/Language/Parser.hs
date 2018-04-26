@@ -264,7 +264,8 @@ directive = AST.Directive <$ tok "@" <*> nameParser <*> optempty arguments
 -- * Type Reference
 type_ :: Parser AST.GType
 type_ =
-  AST.TypeList <$> listType <|> AST.TypeNonNull <$> nonNullType <|>
+  AST.TypeNonNull <$> nonNullType <|>
+  AST.TypeList <$> listType <|>
   AST.TypeNamed <$> namedType <?> "type_ error!"
 
 namedType :: Parser AST.NamedType
