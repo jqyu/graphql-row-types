@@ -25,7 +25,6 @@ type Definitions = [GraphQL.schema|
   """
   scalar Int @haskellType(name: "Int32")
 
-
   """
   The `Float` scalar type represents signed double-precision fractional
   values as specified by
@@ -55,6 +54,8 @@ type Definitions = [GraphQL.schema|
   scalar ID @haskellType(name: "Id")
 |]
 
+
+-- TODO: fill in real implementations
 resolver :: forall m schema. GraphQL.Resolver m schema Definitions
 resolver =
   define @"Int" ScalarResolver
