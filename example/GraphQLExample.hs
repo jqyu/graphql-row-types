@@ -65,7 +65,9 @@ type Schema = Scalars.Definitions .+ Introspection.Definitions .+ [GraphQL.schem
   }
 |]
 
-type DummyT = GetType Schema ('NULLABLE_LIST_OF ('NULLABLE "Unit"))
+type DummyT = GetType Schema ('NULLABLE_LIST_OF ('NULLABLE "DummyInterface1"))
+
+type GoalT = V.Var ("DummyType1" .== () .+ "DummyType3" .== ())
 
 unionValue ::
      forall label value row. (KnownSymbol label, row .! label ≈ value)
@@ -76,10 +78,5 @@ unionValue = diversify . Variant.singleton Label
     diversify :: Variant.Var (label .== value) -> Variant.Var row
     diversify = UNSAFE.unsafeCoerce
 
-type GoalT = V.Var ("DummyType1" .== () .+ "DummyType3" .== ())
-
-constrained :: GetNamedType schema name ~ GoalT => GetType schema ('NULLABLE_LIST_OF ('NULLABLE name))
-constrained = pure . pure . pure $ unionValue @"DummyType1" ()
-
 -- value :: Applicative m => m DummyT
--- value = pure . pure . pure . pure $ ()
+-- value = pure . pure . pure . pure $ unionValue @"DummyType1" ()

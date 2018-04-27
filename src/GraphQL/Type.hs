@@ -3,8 +3,9 @@
 module GraphQL.Type where
 
 import Data.Row (Rec, Var, type (.+), type (.==))
-import Data.Row.Poly (type (.!), Empty, Ifte, LT(..), Row(..))
+import Data.Row.Poly (Empty, Ifte, LT(..), Row(..))
 import GHC.Types (Symbol, Type)
+import qualified GHC.TypeLits as TL
 import Protolude
 
 -- schema representation
@@ -94,17 +95,24 @@ type family GetType (schema :: Row TypeDefinition) (ref :: TypeRef) :: Type wher
   GetType schema ('NULLABLE_LIST_OF ref) = Maybe [GetType schema ref]
 
 type family GetNamedType (schema :: Row TypeDefinition) (name :: Symbol) :: Type where
-  GetNamedType schema name = DefinitionToType schema name (schema .! name)
+  GetNamedType ('R schema) name = GetNamedTypeR schema name schema
 
-type family DefinitionToType (schema :: Row TypeDefinition) (name :: Symbol) (definition :: TypeDefinition) :: Type where
-  DefinitionToType _ _ ('SCALAR scalar _) = scalar
-  DefinitionToType _ _ ('OBJECT object _ _ _) = object
-  DefinitionToType schema interface ('INTERFACE _ _) = Var (InterfaceToRow schema interface)
-  DefinitionToType schema _ ('UNION _ possibleTypes) = Var (UnionToRow schema possibleTypes)
-  DefinitionToType schema _ ('INPUT_OBJECT _ inputFields) = Rec (InputValuesToRow schema inputFields)
-
-type family InterfaceToRow (schema :: Row TypeDefinition) (interface :: Symbol) :: Row Type where
-  InterfaceToRow ('R definitions) interface = 'R (InterfaceToRowR interface definitions)
+-- these type families peek directly into the `Row` structure to improve typechecking performance slightly
+type family GetNamedTypeR (fullSchema :: [LT TypeDefinition]) (name :: Symbol) (definitions :: [LT TypeDefinition]) :: Type where
+  GetNamedTypeR _ name '[] =
+    TL.TypeError (TL.Text "No GraphQL definition found for " TL.:<>: TL.ShowType name)
+  GetNamedTypeR _ name (name ':-> 'SCALAR scalar _ ': _) =
+    scalar
+  GetNamedTypeR _ name (name ':-> 'OBJECT object _ _ _ ': _) =
+    object
+  GetNamedTypeR schema name (name ':-> 'INTERFACE _ _ ': _) =
+    Var ('R (InterfaceToRowR name schema))
+  GetNamedTypeR schema name (name ':-> UNION _ possibleTypes ': _) =
+    Var (UnionToRowR schema possibleTypes)
+  GetNamedTypeR schema name (name ':-> 'INPUT_OBJECT _ ('R inputFields) ': _) =
+    Rec ('R (InputValuesToRowR schema inputFields))
+  GetNamedTypeR schema name (_ ': rest) =
+    GetNamedTypeR schema name rest
 
 type family InterfaceToRowR (interface :: Symbol) (definitions :: [LT TypeDefinition]) :: [LT Type] where
   InterfaceToRowR _ '[] = '[]
@@ -115,27 +123,30 @@ type family InterfaceToRowR (interface :: Symbol) (definitions :: [LT TypeDefini
       (InterfaceToRowR interface rest)
   InterfaceToRowR interface (_ ': rest) = InterfaceToRowR interface rest
 
-type family UnionToRow (schema :: Row TypeDefinition) (possibleTypes :: [Symbol]) :: Row Type where
-  UnionToRow schema '[] = Empty
-  UnionToRow schema (label ': rest) =
-    label .== DefinitionToType schema label (schema .! label)
-    .+ UnionToRow schema rest
+type family UnionToRowR (schema :: [LT TypeDefinition]) (possibleTypes :: [Symbol]) :: Row Type where
+  UnionToRowR schema '[] = Empty
+  UnionToRowR schema (label ': rest) =
+    label .== GetNamedTypeR schema label schema
+    .+ UnionToRowR schema rest
 
-type family InputValuesToRow (schema :: Row TypeDefinition) (inputValues :: Row InputValueDefinition) :: Row Type where
-  InputValuesToRow schema ('R inputValues) = 'R (InputValuesToRowR schema inputValues)
-
-type family InputValuesToRowR (schema :: Row TypeDefinition) (inputValues :: [LT InputValueDefinition]) :: [LT Type] where
+type family InputValuesToRowR (schema :: [LT TypeDefinition]) (inputValues :: [LT InputValueDefinition]) :: [LT Type] where
   InputValuesToRowR _ '[] = '[]
   InputValuesToRowR schema (label :-> 'INPUT_VALUE ref _ ': rest) =
-    label :-> GetType schema ref
+    label :-> GetInputValueTypeR schema ref
     ': InputValuesToRowR schema rest
   InputValuesToRowR schema (label :-> 'INPUT_VALUE_WITH_DEFAULT ref _ _ ': rest) =
-    label :-> GetNullableInputValueType schema ref
+    label :-> GetNullableInputValueTypeR schema ref
     ': InputValuesToRowR schema rest
 
-type family GetNullableInputValueType (schema :: Row TypeDefinition) (ref :: TypeRef) :: Type where
-  GetNullableInputValueType schema ('NULLABLE symbol) = GetNamedType schema symbol
-  GetNullableInputValueType schema ('NULLABLE_LIST_OF ref) = Maybe [GetType schema ref]
+type family GetInputValueTypeR (schema :: [LT TypeDefinition]) (ref :: TypeRef) :: Type where
+  GetInputValueTypeR schema ('NON_NULL symbol) = GetNamedTypeR schema symbol schema
+  GetInputValueTypeR schema ('NON_NULL_LIST_OF ref) = [GetInputValueTypeR schema ref]
+  GetInputValueTypeR schema ('NULLABLE symbol) = Maybe (GetNamedTypeR schema symbol schema)
+  GetInputValueTypeR schema ('NULLABLE_LIST_OF ref) = Maybe [GetInputValueTypeR schema ref]
+
+type family GetNullableInputValueTypeR (schema :: [LT TypeDefinition]) (ref :: TypeRef) :: Type where
+  GetNullableInputValueTypeR schema ('NULLABLE symbol) = GetNamedTypeR schema symbol schema
+  GetNullableInputValueTypeR schema ('NULLABLE_LIST_OF ref) = Maybe [GetInputValueTypeR schema ref]
   -- TODO: error message in case you try to provide a non-null input value with a default value
 
 

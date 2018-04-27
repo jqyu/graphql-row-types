@@ -73,6 +73,8 @@ rowT :: AST.Name -> Type -> RowT
 rowT name t = (name, t)
 
 -- constructs a row type, taking care to preserve label ordering
+-- the alternative would be to construct the type via applications of
+-- '.==' and '.+', which lead to slower type-checking
 rowsT :: [RowT] -> Q Type
 rowsT = map mapToRow . foldM collectEntry Map.empty
   where
