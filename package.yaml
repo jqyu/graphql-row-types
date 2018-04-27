@@ -57,6 +57,7 @@ dependencies:
 - aeson
 - attoparsec
 - constraints
+- containers
 - ghc-prim
 - protolude
 - row-types

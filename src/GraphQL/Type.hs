@@ -90,7 +90,7 @@ data EnumValueDefinition where
 type family GetType (schema :: Row TypeDefinition) (ref :: TypeRef) :: Type where
   GetType schema ('NON_NULL symbol) = GetNamedType schema symbol
   GetType schema ('NON_NULL_LIST_OF ref) = [GetType schema ref]
-  GetType schema ('NULLABLE symbol) = GetNamedType schema symbol
+  GetType schema ('NULLABLE symbol) = Maybe (GetNamedType schema symbol)
   GetType schema ('NULLABLE_LIST_OF ref) = Maybe [GetType schema ref]
 
 type family GetNamedType (schema :: Row TypeDefinition) (name :: Symbol) :: Type where
@@ -143,11 +143,7 @@ newtype GraphQLEnum (cases :: [Symbol]) = GraphQLEnum { value :: Text }
 
 -- functions on type level lists
 
-type family RemoveL (value :: k) (values :: [k]) :: [k] where
-  RemoveL value '[] = '[]
-  RemoveL value (value ': rest) = (RemoveL value rest)
-  RemoveL value (v ': rest) = v ': RemoveL value rest
-
 type family Elem (value :: k) (values :: [k]) :: Bool where
   Elem value '[] = False
-  Elem value (v ': rest) = Ifte (value == v) True (Elem value rest)
+  Elem value (value ': _) = True
+  Elem value (_ ': rest) = Elem value rest

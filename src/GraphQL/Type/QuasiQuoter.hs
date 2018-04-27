@@ -5,13 +5,14 @@ module GraphQL.Type.QuasiQuoter
 import Control.Monad (fail)
 import qualified Data.Attoparsec.Text as AParsec
        (endOfInput, parseOnly)
-import Data.Row.Poly (type (.+), type (.==), Empty)
+import qualified Data.Map as Map
+import Data.Row.Poly (Row(..), LT(..))
 import qualified GraphQL.Type as GraphQL
 import qualified GraphQL.Language.AST as AST
 import qualified GraphQL.Language.Encoder as Encoder
 import qualified GraphQL.Language.Parser as Parser (schemaDocument)
 import Language.Haskell.TH.Quote (QuasiQuoter(..))
-import Language.Haskell.TH.Syntax (Name, Q, TyLit(..), Type(..), lookupTypeName)
+import Language.Haskell.TH.Syntax (Q, TyLit(..), Type(..), lookupTypeName)
 import Protolude hiding (Type)
 
 schema :: QuasiQuoter
@@ -34,8 +35,7 @@ sdlToType source = do
     either (fail . ("parse error: " <>)) pure
     . AParsec.parseOnly (Parser.schemaDocument <* AParsec.endOfInput)
     $ source
-  -- TODO: check for duplicate types
-  map rowsT . for typeDefinitions $ \case
+  rows <- for typeDefinitions $ \case
     AST.TypeDefinitionScalar def ->
       scalarT def
     AST.TypeDefinitionObject def ->
@@ -44,15 +44,16 @@ sdlToType source = do
       -- TODO: check that interfaces don't have duplicates
       objectT def
     AST.TypeDefinitionInterface def ->
-      pure (interfaceT def)
+      interfaceT def
     AST.TypeDefinitionUnion def ->
       -- TODO: check that union members don't have duplicates
       -- TODO: check that union members are either objects or not defined
       pure (unionT def)
     AST.TypeDefinitionEnum def ->
-      pure (enumT def)
+      enumT def
     AST.TypeDefinitionInputObject def ->
-      pure (inputObjectT def)
+      inputObjectT def
+  rowsT rows
 
 
 symbolT :: Text -> Type
@@ -66,80 +67,83 @@ descriptionT =
   maybe (LitT (StrTyLit "")) $ \(AST.StringValue value) ->
     symbolT value
 
-binAppT :: Name -> Type -> Type -> Type
-binAppT op = AppT . AppT (ConT op)
+type RowT = (AST.Name, Type)
 
-rowT :: AST.Name -> Type -> Type
-rowT key = binAppT ''(.==) (nameT key)
+rowT :: AST.Name -> Type -> RowT
+rowT name t = (name, t)
 
--- ["k1" .== T1, ..., "kn" .== Tn] -> "k1" .== T1 .+ ... .+ "kn" .== Tn
-rowsT :: [Type] -> Type
-rowsT = foldr (binAppT ''(.+)) (ConT ''Empty)
+-- constructs a row type, taking care to preserve label ordering
+rowsT :: [RowT] -> Q Type
+rowsT = map mapToRow . foldM collectEntry Map.empty
+  where
+    mapToRow :: Map AST.Name Type -> Type
+    mapToRow = AppT (PromotedT 'R) . promotedListT . map toLT . Map.toAscList
+
+    toLT :: RowT -> Type
+    toLT (name, t) =
+      PromotedT '(:->)
+      `AppT` nameT name
+      `AppT` t
+
+    collectEntry :: Map AST.Name Type -> RowT -> Q (Map AST.Name Type)
+    collectEntry entries (name, _) | Map.member name entries =
+      fail "Duplicate row entry. TODO: provide better error message"
+    collectEntry entries (name, t) = pure (Map.insert name t entries)
 
 promotedListT :: [Type] -> Type
 promotedListT = foldr (AppT . AppT PromotedConsT) PromotedNilT
 
-scalarT :: AST.ScalarTypeDefinition -> Q Type
+scalarT :: AST.ScalarTypeDefinition -> Q RowT
 scalarT (AST.ScalarTypeDefinition desc name ds) = do
   haskellType <- haskellTypeDirective (ScalarDef name) ds
-  pure
-    . rowT name
-    $ PromotedT 'GraphQL.SCALAR
-      `AppT`
-      haskellType
-      `AppT`
-      descriptionT desc
+  pure . rowT name $
+    PromotedT 'GraphQL.SCALAR
+    `AppT` haskellType
+    `AppT` descriptionT desc
 
-objectT :: AST.ObjectTypeDefinition -> Q Type
+objectT :: AST.ObjectTypeDefinition -> Q RowT
 objectT (AST.ObjectTypeDefinition desc name ifs ds fs) = do
   haskellType <- haskellTypeDirective (ObjectDef name) ds
-  pure
-    . rowT name
-    $ PromotedT 'GraphQL.OBJECT
-      `AppT`
-      haskellType
-      `AppT`
-      descriptionT desc
-      `AppT`
-      promotedListT (map (\(AST.NamedType n) -> nameT n) ifs)
-      `AppT`
-      rowsT (map fieldT fs)
+  fields <- traverse fieldT fs
+  fieldsRow <- rowsT fields
+  pure . rowT name $
+    PromotedT 'GraphQL.OBJECT
+    `AppT` haskellType
+    `AppT` descriptionT desc
+    `AppT` promotedListT (map (\(AST.NamedType n) -> nameT n) ifs)
+    `AppT` fieldsRow
 
-interfaceT :: AST.InterfaceTypeDefinition -> Type
-interfaceT (AST.InterfaceTypeDefinition desc name _ fs) =
-  rowT name
-  $ PromotedT 'GraphQL.INTERFACE
-    `AppT`
-    descriptionT desc
-    `AppT`
-    rowsT (map fieldT fs)
+interfaceT :: AST.InterfaceTypeDefinition -> Q RowT
+interfaceT (AST.InterfaceTypeDefinition desc name _ fs) = do
+  fields <- traverse fieldT fs
+  fieldsRow <- rowsT fields
+  pure . rowT name $
+    PromotedT 'GraphQL.INTERFACE
+    `AppT` descriptionT desc
+    `AppT` fieldsRow
 
-unionT :: AST.UnionTypeDefinition -> Type
+unionT :: AST.UnionTypeDefinition -> RowT
 unionT (AST.UnionTypeDefinition desc name _ ts) =
   rowT name
   $ PromotedT 'GraphQL.UNION
-    `AppT`
-    descriptionT desc
-    `AppT`
-    promotedListT (map (\(AST.NamedType n) -> nameT n) ts)
+    `AppT` descriptionT desc
+    `AppT` promotedListT (map (\(AST.NamedType n) -> nameT n) ts)
 
-enumT :: AST.EnumTypeDefinition -> Type
-enumT (AST.EnumTypeDefinition desc name _ vals) =
-  rowT name
-  $ PromotedT 'GraphQL.ENUM
-    `AppT`
-    descriptionT desc
-    `AppT`
-    rowsT (map enumValueT vals)
+enumT :: AST.EnumTypeDefinition -> Q RowT
+enumT (AST.EnumTypeDefinition desc name _ vals) = do
+  valsRow <- rowsT $ map enumValueT vals
+  pure . rowT name $
+    PromotedT 'GraphQL.ENUM
+    `AppT` descriptionT desc
+    `AppT` valsRow
 
-inputObjectT :: AST.InputObjectTypeDefinition -> Type
-inputObjectT (AST.InputObjectTypeDefinition desc name _ fs) =
-  rowT name
-  $ PromotedT 'GraphQL.INPUT_OBJECT
-    `AppT`
-    descriptionT desc
-    `AppT`
-    rowsT (map inputValueT fs)
+inputObjectT :: AST.InputObjectTypeDefinition -> Q RowT
+inputObjectT (AST.InputObjectTypeDefinition desc name _ fs) = do
+  inputValuesRow <- rowsT $ map inputValueT fs
+  pure . rowT name $
+    PromotedT 'GraphQL.INPUT_OBJECT
+    `AppT` descriptionT desc
+    `AppT` inputValuesRow
 
 
 typeRefT :: AST.GType -> Type
@@ -152,59 +156,45 @@ typeRefT (AST.TypeNonNull (AST.NonNullTypeNamed (AST.NamedType n))) =
 typeRefT (AST.TypeNonNull (AST.NonNullTypeList (AST.ListType t))) =
   PromotedT 'GraphQL.NON_NULL_LIST_OF `AppT` typeRefT t
 
-fieldT :: AST.FieldDefinition -> Type
-fieldT (AST.FieldDefinition desc name args t ds) =
-  rowT name $ case deprecationDirective ds of
+fieldT :: AST.FieldDefinition -> Q RowT
+fieldT (AST.FieldDefinition desc name args t ds) = do
+  argsRow <- rowsT $ map inputValueT args
+  pure . rowT name $ case deprecationDirective ds of
     Just reason ->
       PromotedT 'GraphQL.DEPRECATED_FIELD
-      `AppT`
-      rowsT (map inputValueT args)
-      `AppT`
-      typeRefT t
-      `AppT`
-      descriptionT reason
-      `AppT`
-      descriptionT desc
+      `AppT` argsRow
+      `AppT` typeRefT t
+      `AppT` descriptionT reason
+      `AppT` descriptionT desc
     Nothing ->
       PromotedT 'GraphQL.FIELD
-      `AppT`
-      rowsT (map inputValueT args)
-      `AppT`
-      typeRefT t
-      `AppT`
-      descriptionT desc
+      `AppT` argsRow
+      `AppT` typeRefT t
+      `AppT` descriptionT desc
 
-inputValueT :: AST.InputValueDefinition -> Type
+inputValueT :: AST.InputValueDefinition -> RowT
 inputValueT (AST.InputValueDefinition desc name t d _) =
   rowT name $ case d of
     Just v ->
       PromotedT 'GraphQL.INPUT_VALUE_WITH_DEFAULT
-      `AppT`
-      typeRefT t
-      `AppT`
-      symbolT (Encoder.value v)
-      `AppT`
-      descriptionT desc
+      `AppT` typeRefT t
+      `AppT` symbolT (Encoder.value v)
+      `AppT` descriptionT desc
     Nothing ->
       PromotedT 'GraphQL.INPUT_VALUE
-      `AppT`
-      typeRefT t
-      `AppT`
-      descriptionT desc
+      `AppT` typeRefT t
+      `AppT` descriptionT desc
 
-enumValueT :: AST.EnumValueDefinition -> Type
+enumValueT :: AST.EnumValueDefinition -> RowT
 enumValueT (AST.EnumValueDefinition desc name ds) =
   rowT name $ case deprecationDirective ds of
     Just reason ->
       PromotedT 'GraphQL.DEPRECATED_ENUM_VALUE
-      `AppT`
-      descriptionT reason
-      `AppT`
-      descriptionT desc
+      `AppT` descriptionT reason
+      `AppT` descriptionT desc
     Nothing ->
       PromotedT 'GraphQL.ENUM_VALUE
-      `AppT`
-      descriptionT desc
+      `AppT` descriptionT desc
 
 -- here be dragons
 getDirective :: Text -> [AST.Directive] -> Maybe AST.Directive
